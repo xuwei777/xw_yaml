@@ -1,0 +1,95 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: traefik-ingress-controller
+  namespace: kube-system
+  labels:
+    k8s-app: traefik-ingress-lb
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      k8s-app: traefik-ingress-lb
+  template:
+    metadata:
+      labels:
+        k8s-app: traefik-ingress-lb
+        name: traefik-ingress-lb
+    spec:
+      serviceAccountName: traefik-ingress-controller
+      terminationGracePeriodSeconds: 60
+      volumes:
+      - name: ssl
+        secret:
+          secretName: jinlbssl
+      - name: config
+        configMap:
+          name: traefik-conf
+      #tolerations:
+      #- operator: "Exists"
+      #nodeSelector:
+        #kubernetes.io/hostname: master
+      containers:
+      - image: traefik:v1.7.17
+        name: traefik-ingress-lb
+        volumeMounts:
+        # - mountPath: "/ssl"
+        #   name: "ssl"
+        - mountPath: "/etc/kubernetes/ssl"
+          name: "ssl"
+        - mountPath: "/config"
+          name: "config"
+        ports:
+        - name: http
+          containerPort: 80
+        - name: https
+          containerPort: 443
+        - name: admin
+          containerPort: 8080
+        args:
+        - --configfile=/config/traefik.toml
+        - --api
+        - --kubernetes
+        - --logLevel=INFO
+        # 使用ssl必须带上的参数
+        - --web
+        - --api.dashboard
+        - --web.metrics
+        - --metrics.prometheus
+        - --web.metrics.prometheus
+        - --kubernetes
+        - --logLevel=INFO
+        - --traefiklog
+        - --traefiklog.format=json
+        - --accesslog
+        - --accesslog.format=json
+        - --accessLog.fields.headers.defaultMode=redact
+        - --insecureskipverify=true
+        - --configFile=/etc/traefik.toml
+        - --defaultentrypoints=http,https
+        - --entrypoints=Name:https Address::443 TLS
+        - --entrypoints=Name:http Address::80
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: traefik-ingress-service
+  namespace: kube-system
+spec:
+  selector:
+    k8s-app: traefik-ingress-lb
+  ports:
+    - protocol: TCP
+      port: 80
+      name: web
+      nodePort: 8000
+    - protocol: TCP
+      port: 8080
+      name: admin
+      nodePort: 9000
+    - protocol: TCP
+      port: 443
+      name: https
+      nodePort: 8443
+  type: NodePort
